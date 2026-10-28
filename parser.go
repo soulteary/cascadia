@@ -546,9 +546,6 @@ func (p *parser) parsePseudoclassSelector() (out Sel, pseudoElement string, err 
 		if err != nil {
 			return out, "", err
 		}
-		if p.i >= len(p.s) {
-			return out, "", errors.New("unexpected EOF in pseudo selector")
-		}
 		if !p.consumeClosingParenthesis() {
 			return out, "", errExpectedClosingParenthesis
 		}
