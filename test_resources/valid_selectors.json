@@ -685,7 +685,7 @@
     "level": 3
   },
   {
-    "name": ":nth-last-of-type selector, matching the thrid last em element",
+    "name": ":nth-last-of-type selector, matching the third last em element",
     "selector": "#pseudo-nth-p1 em:nth-last-of-type(3)",
     "expect": [
       "pseudo-nth-em2"

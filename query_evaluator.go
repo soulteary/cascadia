@@ -85,19 +85,8 @@ func (e *queryEvaluator) matchCombined(s combinedSelector, n *html.Node) bool {
 		}
 	case '>':
 		return n.Parent != nil && e.matchSel(s.first, n.Parent)
-	case '+':
-		for previous := n.PrevSibling; previous != nil; previous = previous.PrevSibling {
-			if previous.Type == html.TextNode || previous.Type == html.CommentNode {
-				continue
-			}
-			return e.matchSel(s.first, previous)
-		}
-	case '~':
-		for previous := n.PrevSibling; previous != nil; previous = previous.PrevSibling {
-			if e.matchSel(s.first, previous) {
-				return true
-			}
-		}
+	case '+', '~':
+		return e.matchPreviousSibling(s, n)
 	}
 	return false
 }
@@ -282,4 +271,23 @@ func queryWithEvaluator(root *html.Node, matcher Matcher, evaluator *queryEvalua
 		}
 	}
 	return nil
+}
+
+func (e *queryEvaluator) matchPreviousSibling(s combinedSelector, n *html.Node) bool {
+	switch s.combinator {
+	case '+':
+		for previous := n.PrevSibling; previous != nil; previous = previous.PrevSibling {
+			if previous.Type == html.TextNode || previous.Type == html.CommentNode {
+				continue
+			}
+			return e.matchSel(s.first, previous)
+		}
+	case '~':
+		for previous := n.PrevSibling; previous != nil; previous = previous.PrevSibling {
+			if e.matchSel(s.first, previous) {
+				return true
+			}
+		}
+	}
+	return false
 }

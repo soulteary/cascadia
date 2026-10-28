@@ -53,7 +53,6 @@ func TestQueryEvaluatorInternalFallbacks(t *testing.T) {
 	doc := NewIndexedDocument(root)
 	evaluator := newQueryEvaluator(doc)
 	div := Query(root, mustParseGroup("div"))
-	main := Query(root, mustParseGroup("main"))
 
 	custom := coverageMatcher{match: func(n *html.Node) bool { return n == div }}
 	if !evaluator.match(custom, div) {
@@ -80,6 +79,13 @@ func TestQueryEvaluatorInternalFallbacks(t *testing.T) {
 		t.Fatal("unknown evaluator combinator matched")
 	}
 
+}
+
+func TestEvaluatorMetadataFallbacks(t *testing.T) {
+	root := MustParseHTML(`<main><div></div><span></span></main>`)
+	evaluator := newQueryEvaluator(NewIndexedDocument(root))
+	div := Query(root, mustParseGroup("div"))
+	main := Query(root, mustParseGroup("main"))
 	plainEvaluator := newQueryEvaluator(nil)
 	nth := nthPseudoClassSelector{a: 0, b: 1}
 	if !plainEvaluator.matchSel(nth, div) {
@@ -240,6 +246,9 @@ func TestCompatibilityHelpersAndErrorPaths(t *testing.T) {
 		t.Fatal("general sibling relative selector unexpectedly matched")
 	}
 
+}
+
+func TestDetachedNodeSelectors(t *testing.T) {
 	detachedElement := &html.Node{Type: html.ElementNode, Data: "p"}
 	detachedText := &html.Node{Type: html.TextNode}
 	parent := &html.Node{Type: html.ElementNode, Data: "div"}
@@ -263,6 +272,10 @@ func TestCompatibilityHelpersAndErrorPaths(t *testing.T) {
 	if (rootPseudoClassSelector{}).Match(&html.Node{Type: html.ElementNode}) {
 		t.Fatal("detached element matched :root")
 	}
+}
+
+func TestRelativeSelectorMetadata(t *testing.T) {
+	root := MustParseHTML(`<main><p></p></main>`)
 	relative := relativePseudoClassSelector{
 		name: "has",
 		rels: []relativeSelector{
@@ -280,6 +293,9 @@ func TestCompatibilityHelpersAndErrorPaths(t *testing.T) {
 		t.Fatal("unknown relative combinator matched")
 	}
 
+}
+
+func TestPublicParserErrors(t *testing.T) {
 	for _, selector := range []string{
 		"div\\", `div[title="unterminated]`, "div:nth-child(", "div:has(",
 		"#", ".", "div,,span", "div[foo=]",

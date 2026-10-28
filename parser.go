@@ -38,17 +38,7 @@ func (p *parser) parseEscape() (result string, err error) {
 			// empty
 		}
 		v, _ := strconv.ParseUint(p.s[start:i], 16, 64)
-		if len(p.s) > i {
-			switch p.s[i] {
-			case '\r':
-				i++
-				if len(p.s) > i && p.s[i] == '\n' {
-					i++
-				}
-			case ' ', '\t', '\n', '\f':
-				i++
-			}
-		}
+		i = skipEscapeTerminator(p.s, i)
 		p.i = i
 		// CSS escapes for U+0000 denote the replacement character, not a NUL.
 		if v == 0 {
@@ -174,18 +164,9 @@ loop:
 	for i < len(p.s) {
 		switch p.s[i] {
 		case '\\':
-			if len(p.s) > i+1 {
-				switch c := p.s[i+1]; c {
-				case '\r':
-					if len(p.s) > i+2 && p.s[i+2] == '\n' {
-						i += 3
-						continue loop
-					}
-					fallthrough
-				case '\n', '\f':
-					i += 2
-					continue loop
-				}
+			if next, ok := escapedLineEnd(p.s, i); ok {
+				i = next
+				continue loop
 			}
 			p.i = i
 			val, err := p.parseEscape()
@@ -396,43 +377,15 @@ func (p *parser) parseAttributeSelector() (attrSelector, error) {
 	if p.i >= len(p.s) {
 		return attrSelector{}, errors.New("unexpected EOF in attribute selector")
 	}
-	var val string
-	var rx *regexp.Regexp
-	if op == "#=" {
-		rx, err = p.parseRegex()
-	} else {
-		switch p.s[p.i] {
-		case '\'', '"':
-			val, err = p.parseString()
-		default:
-			val, err = p.parseIdentifier()
-		}
-	}
+	val, rx, err := p.parseAttributeValue(op)
 	if err != nil {
 		return attrSelector{}, err
 	}
 
-	p.skipWhitespace()
-	if p.i >= len(p.s) {
-		return attrSelector{}, errors.New("unexpected EOF in attribute selector")
+	ignoreCase, err := p.parseAttributeEnd()
+	if err != nil {
+		return attrSelector{}, err
 	}
-
-	// check if the attribute contains an ignore case flag
-	ignoreCase := false
-	if p.s[p.i] == 'i' || p.s[p.i] == 'I' {
-		ignoreCase = true
-		p.i++
-	}
-
-	p.skipWhitespace()
-	if p.i >= len(p.s) {
-		return attrSelector{}, errors.New("unexpected EOF in attribute selector")
-	}
-
-	if p.s[p.i] != ']' {
-		return attrSelector{}, fmt.Errorf("expected ']', found '%c' instead", p.s[p.i])
-	}
-	p.i++
 
 	switch op {
 	case "=", "!=", "~=", "|=", "^=", "$=", "*=", "#=":
@@ -453,166 +406,33 @@ var (
 // https://drafts.csswg.org/selectors-3/#pseudo-elements
 // Returning a nil `Sel` (and a nil `error`) means we found a pseudo-element.
 func (p *parser) parsePseudoclassSelector() (out Sel, pseudoElement string, err error) {
-	if p.i >= len(p.s) {
-		return nil, "", fmt.Errorf("expected pseudoclass selector (:pseudoclass), found EOF instead")
-	}
-	if p.s[p.i] != ':' {
-		return nil, "", fmt.Errorf("expected attribute selector (:pseudoclass), found '%c' instead", p.s[p.i])
-	}
-
-	p.i++
-	var mustBePseudoElement bool
-	if p.i >= len(p.s) {
-		return nil, "", fmt.Errorf("got empty pseudoclass (or pseudoelement)")
-	}
-	if p.s[p.i] == ':' { // we found a pseudo-element
-		mustBePseudoElement = true
-		p.i++
-	}
-
-	name, err := p.parseIdentifier()
+	name, err := p.parsePseudoName()
 	if err != nil {
-		return
-	}
-	name = toLowerASCII(name)
-	if mustBePseudoElement && (name != "after" && name != "backdrop" && name != "before" &&
-		name != "cue" && name != "first-letter" && name != "first-line" && name != "grammar-error" &&
-		name != "marker" && name != "placeholder" && name != "selection" && name != "spelling-error") {
-		return out, "", fmt.Errorf("unknown pseudoelement :%s", name)
+		return nil, "", err
 	}
 
+	if simple, ok := simplePseudoClasses[name]; ok {
+		return simple, "", nil
+	}
 	switch name {
 	case "not":
-		if !p.consumeParenthesis() {
-			return out, "", errExpectedParenthesis
-		}
-		sel, parseErr := p.parseSelectorGroup()
-		if parseErr != nil {
-			return out, "", parseErr
-		}
-		if !p.consumeClosingParenthesis() {
-			return out, "", errExpectedClosingParenthesis
-		}
-
-		out = notPseudoClassSelector{match: sel}
+		return p.parseNotPseudo(name)
 
 	case "has", "haschild":
-		if !p.consumeParenthesis() {
-			return out, "", errExpectedParenthesis
-		}
-		rels, parseErr := p.parseRelativeSelectorGroup()
-		if parseErr != nil {
-			return out, "", parseErr
-		}
-		if !p.consumeClosingParenthesis() {
-			return out, "", errExpectedClosingParenthesis
-		}
-
-		out = relativePseudoClassSelector{name: name, rels: rels}
+		return p.parseHasPseudo(name)
 
 	case "contains", "containsown":
-		if !p.consumeParenthesis() {
-			return out, "", errExpectedParenthesis
-		}
-		if p.i == len(p.s) {
-			return out, "", errUnmatchedParenthesis
-		}
-		var val string
-		switch p.s[p.i] {
-		case '\'', '"':
-			val, err = p.parseString()
-		default:
-			val, err = p.parseIdentifier()
-		}
-		if err != nil {
-			return out, "", err
-		}
-		val = strings.ToLower(val)
-		p.skipWhitespace()
-		if p.i >= len(p.s) {
-			return out, "", errors.New("unexpected EOF in pseudo selector")
-		}
-		if !p.consumeClosingParenthesis() {
-			return out, "", errExpectedClosingParenthesis
-		}
-
-		out = containsPseudoClassSelector{own: name == "containsown", value: val}
+		return p.parseContainsPseudo(name)
 
 	case "matches", "matchesown":
-		if !p.consumeParenthesis() {
-			return out, "", errExpectedParenthesis
-		}
-		rx, err := p.parseRegex()
-		if err != nil {
-			return out, "", err
-		}
-		if !p.consumeClosingParenthesis() {
-			return out, "", errExpectedClosingParenthesis
-		}
-
-		out = regexpPseudoClassSelector{own: name == "matchesown", regexp: rx}
+		return p.parseMatchesPseudo(name)
 
 	case "nth-child", "nth-last-child", "nth-of-type", "nth-last-of-type":
-		if !p.consumeParenthesis() {
-			return out, "", errExpectedParenthesis
-		}
-		a, b, err := p.parseNth()
-		if err != nil {
-			return out, "", err
-		}
-		if !p.consumeClosingParenthesis() {
-			return out, "", errExpectedClosingParenthesis
-		}
-		last := name == "nth-last-child" || name == "nth-last-of-type"
-		ofType := name == "nth-of-type" || name == "nth-last-of-type"
-		out = nthPseudoClassSelector{a: a, b: b, last: last, ofType: ofType}
+		return p.parseNthChildPseudo(name)
 
-	case "first-child":
-		out = nthPseudoClassSelector{a: 0, b: 1, ofType: false, last: false}
-	case "last-child":
-		out = nthPseudoClassSelector{a: 0, b: 1, ofType: false, last: true}
-	case "first-of-type":
-		out = nthPseudoClassSelector{a: 0, b: 1, ofType: true, last: false}
-	case "last-of-type":
-		out = nthPseudoClassSelector{a: 0, b: 1, ofType: true, last: true}
-	case "only-child":
-		out = onlyChildPseudoClassSelector{ofType: false}
-	case "only-of-type":
-		out = onlyChildPseudoClassSelector{ofType: true}
-	case "input":
-		out = inputPseudoClassSelector{}
-	case "empty":
-		out = emptyElementPseudoClassSelector{}
-	case "root":
-		out = rootPseudoClassSelector{}
-	case "link":
-		out = linkPseudoClassSelector{}
 	case "lang":
-		if !p.consumeParenthesis() {
-			return out, "", errExpectedParenthesis
-		}
-		if p.i == len(p.s) {
-			return out, "", errUnmatchedParenthesis
-		}
-		val, err := p.parseIdentifier()
-		if err != nil {
-			return out, "", err
-		}
-		val = strings.ToLower(val)
-		p.skipWhitespace()
-		if p.i >= len(p.s) {
-			return out, "", errors.New("unexpected EOF in pseudo selector")
-		}
-		if !p.consumeClosingParenthesis() {
-			return out, "", errExpectedClosingParenthesis
-		}
-		out = langPseudoClassSelector{lang: val}
-	case "enabled":
-		out = enabledPseudoClassSelector{}
-	case "disabled":
-		out = disabledPseudoClassSelector{}
-	case "checked":
-		out = checkedPseudoClassSelector{}
+		return p.parseLangPseudo(name)
+
 	case "visited", "hover", "active", "focus", "target":
 		// Not applicable in a static context: never match.
 		out = neverMatchSelector{value: ":" + name}
@@ -621,6 +441,129 @@ func (p *parser) parsePseudoclassSelector() (out Sel, pseudoElement string, err 
 	default:
 		return out, "", fmt.Errorf("unknown pseudoclass or pseudoelement :%s", name)
 	}
+	return
+}
+
+func (p *parser) parseNotPseudo(name string) (out Sel, pseudoElement string, err error) {
+	if !p.consumeParenthesis() {
+		return out, "", errExpectedParenthesis
+	}
+	sel, parseErr := p.parseSelectorGroup()
+	if parseErr != nil {
+		return out, "", parseErr
+	}
+	if !p.consumeClosingParenthesis() {
+		return out, "", errExpectedClosingParenthesis
+	}
+
+	out = notPseudoClassSelector{match: sel}
+
+	return
+}
+
+func (p *parser) parseHasPseudo(name string) (out Sel, pseudoElement string, err error) {
+	if !p.consumeParenthesis() {
+		return out, "", errExpectedParenthesis
+	}
+	rels, parseErr := p.parseRelativeSelectorGroup()
+	if parseErr != nil {
+		return out, "", parseErr
+	}
+	if !p.consumeClosingParenthesis() {
+		return out, "", errExpectedClosingParenthesis
+	}
+
+	out = relativePseudoClassSelector{name: name, rels: rels}
+
+	return
+}
+
+func (p *parser) parseContainsPseudo(name string) (out Sel, pseudoElement string, err error) {
+	if !p.consumeParenthesis() {
+		return out, "", errExpectedParenthesis
+	}
+	if p.i == len(p.s) {
+		return out, "", errUnmatchedParenthesis
+	}
+	var val string
+	switch p.s[p.i] {
+	case '\'', '"':
+		val, err = p.parseString()
+	default:
+		val, err = p.parseIdentifier()
+	}
+	if err != nil {
+		return out, "", err
+	}
+	val = strings.ToLower(val)
+	p.skipWhitespace()
+	if p.i >= len(p.s) {
+		return out, "", errors.New("unexpected EOF in pseudo selector")
+	}
+	if !p.consumeClosingParenthesis() {
+		return out, "", errExpectedClosingParenthesis
+	}
+
+	out = containsPseudoClassSelector{own: name == "containsown", value: val}
+
+	return
+}
+
+func (p *parser) parseMatchesPseudo(name string) (out Sel, pseudoElement string, err error) {
+	if !p.consumeParenthesis() {
+		return out, "", errExpectedParenthesis
+	}
+	rx, err := p.parseRegex()
+	if err != nil {
+		return out, "", err
+	}
+	if !p.consumeClosingParenthesis() {
+		return out, "", errExpectedClosingParenthesis
+	}
+
+	out = regexpPseudoClassSelector{own: name == "matchesown", regexp: rx}
+
+	return
+}
+
+func (p *parser) parseNthChildPseudo(name string) (out Sel, pseudoElement string, err error) {
+	if !p.consumeParenthesis() {
+		return out, "", errExpectedParenthesis
+	}
+	a, b, err := p.parseNth()
+	if err != nil {
+		return out, "", err
+	}
+	if !p.consumeClosingParenthesis() {
+		return out, "", errExpectedClosingParenthesis
+	}
+	last := name == "nth-last-child" || name == "nth-last-of-type"
+	ofType := name == "nth-of-type" || name == "nth-last-of-type"
+	out = nthPseudoClassSelector{a: a, b: b, last: last, ofType: ofType}
+
+	return
+}
+
+func (p *parser) parseLangPseudo(name string) (out Sel, pseudoElement string, err error) {
+	if !p.consumeParenthesis() {
+		return out, "", errExpectedParenthesis
+	}
+	if p.i == len(p.s) {
+		return out, "", errUnmatchedParenthesis
+	}
+	val, err := p.parseIdentifier()
+	if err != nil {
+		return out, "", err
+	}
+	val = strings.ToLower(val)
+	p.skipWhitespace()
+	if p.i >= len(p.s) {
+		return out, "", errors.New("unexpected EOF in pseudo selector")
+	}
+	if !p.consumeClosingParenthesis() {
+		return out, "", errExpectedClosingParenthesis
+	}
+	out = langPseudoClassSelector{lang: val}
 	return
 }
 
@@ -646,6 +589,7 @@ func (p *parser) parseInteger() (int, error) {
 
 // parseNth parses the argument for :nth-child (normally of the form an+b).
 func (p *parser) parseNth() (a, b int, err error) {
+	sign := 1
 	// initial state
 	if p.i >= len(p.s) {
 		goto eof
@@ -664,18 +608,7 @@ func (p *parser) parseNth() (a, b int, err error) {
 		p.i++
 		goto readN
 	case 'o', 'O', 'e', 'E':
-		id, nameErr := p.parseName()
-		if nameErr != nil {
-			return 0, 0, nameErr
-		}
-		id = toLowerASCII(id)
-		if id == "odd" {
-			return 2, 1, nil
-		}
-		if id == "even" {
-			return 2, 0, nil
-		}
-		return 0, 0, fmt.Errorf("expected 'odd' or 'even', but found '%s' instead", id)
+		return p.parseNthKeyword()
 	default:
 		goto invalid
 	}
@@ -690,9 +623,10 @@ positiveA:
 		if err != nil {
 			return 0, 0, err
 		}
+		a *= sign
 		goto readA
 	case 'n', 'N':
-		a = 1
+		a = sign
 		p.i++
 		goto readN
 	default:
@@ -700,24 +634,8 @@ positiveA:
 	}
 
 negativeA:
-	if p.i >= len(p.s) {
-		goto eof
-	}
-	switch p.s[p.i] {
-	case '0', '1', '2', '3', '4', '5', '6', '7', '8', '9':
-		a, err = p.parseInteger()
-		if err != nil {
-			return 0, 0, err
-		}
-		a = -a
-		goto readA
-	case 'n', 'N':
-		a = -1
-		p.i++
-		goto readN
-	default:
-		goto invalid
-	}
+	sign = -1
+	goto positiveA
 
 readA:
 	if p.i >= len(p.s) {
@@ -733,30 +651,7 @@ readA:
 	}
 
 readN:
-	p.skipWhitespace()
-	if p.i >= len(p.s) {
-		goto eof
-	}
-	switch p.s[p.i] {
-	case '+':
-		p.i++
-		p.skipWhitespace()
-		b, err = p.parseInteger()
-		if err != nil {
-			return 0, 0, err
-		}
-		return a, b, nil
-	case '-':
-		p.i++
-		p.skipWhitespace()
-		b, err = p.parseInteger()
-		if err != nil {
-			return 0, 0, err
-		}
-		return a, -b, nil
-	default:
-		return a, 0, nil
-	}
+	return p.parseNthOffset(a)
 
 eof:
 	return 0, 0, errors.New("unexpected EOF while attempting to parse expression of form an+b")
@@ -778,9 +673,7 @@ func (p *parser) parseSimpleSelectorSequence() (Sel, error) {
 	case '*':
 		// It's the universal selector. Just skip over it, since it doesn't affect the meaning.
 		p.i++
-		if p.i+2 < len(p.s) && p.s[p.i:p.i+2] == "|*" { // other version of universal selector
-			p.i += 2
-		}
+		p.skipUniversalNamespace()
 	case '#', '.', '[', ':':
 		// There's no type selector. Wait to process the other till the main loop.
 	default:
@@ -799,16 +692,9 @@ loop:
 			newPseudoElement string
 			err              error
 		)
-		switch p.s[p.i] {
-		case '#':
-			ns, err = p.parseIDSelector()
-		case '.':
-			ns, err = p.parseClassSelector()
-		case '[':
-			ns, err = p.parseAttributeSelector()
-		case ':':
-			ns, newPseudoElement, err = p.parsePseudoclassSelector()
-		default:
+		var recognized bool
+		ns, newPseudoElement, err, recognized = p.parseSelectorSuffix()
+		if !recognized {
 			break loop
 		}
 		if err != nil {
@@ -958,4 +844,203 @@ func (p *parser) parseRelativeSelectorGroup() ([]relativeSelector, error) {
 		result = append(result, c)
 	}
 	return result, nil
+}
+
+func isPseudoElement(name string) bool {
+	switch name {
+	case "after", "backdrop", "before", "cue", "first-letter", "first-line", "grammar-error", "marker", "placeholder", "selection", "spelling-error":
+		return true
+	default:
+		return false
+	}
+}
+
+func (p *parser) parseNthOffset(a int) (int, int, error) {
+	var b int
+	var err error
+	p.skipWhitespace()
+	if p.i >= len(p.s) {
+		return 0, 0, errors.New("unexpected EOF while attempting to parse expression of form an+b")
+	}
+	switch p.s[p.i] {
+	case '+':
+		p.i++
+		p.skipWhitespace()
+		b, err = p.parseInteger()
+		if err != nil {
+			return 0, 0, err
+		}
+		return a, b, nil
+	case '-':
+		p.i++
+		p.skipWhitespace()
+		b, err = p.parseInteger()
+		if err != nil {
+			return 0, 0, err
+		}
+		return a, -b, nil
+	default:
+		return a, 0, nil
+	}
+}
+
+func (p *parser) parseSelectorSuffix() (Sel, string, error, bool) {
+	switch p.s[p.i] {
+	case '#':
+		sel, err := p.parseIDSelector()
+		return sel, "", err, true
+	case '.':
+		sel, err := p.parseClassSelector()
+		return sel, "", err, true
+	case '[':
+		sel, err := p.parseAttributeSelector()
+		return sel, "", err, true
+	case ':':
+		sel, pseudo, err := p.parsePseudoclassSelector()
+		return sel, pseudo, err, true
+	default:
+		return nil, "", nil, false
+	}
+}
+
+func (p *parser) parseAttributeValue(op string) (string, *regexp.Regexp, error) {
+	if op == "#=" {
+		rx, err := p.parseRegex()
+		return "", rx, err
+	}
+	var val string
+	var err error
+	switch p.s[p.i] {
+	case '\'', '"':
+		val, err = p.parseString()
+	default:
+		val, err = p.parseIdentifier()
+	}
+	return val, nil, err
+}
+
+func escapedLineEnd(s string, i int) (int, bool) {
+	if len(s) <= i+1 {
+		return i, false
+	}
+	switch s[i+1] {
+	case '\r':
+		if len(s) > i+2 && s[i+2] == '\n' {
+			return i + 3, true
+		}
+		return i + 2, true
+	case '\n', '\f':
+		return i + 2, true
+	default:
+		return i, false
+	}
+}
+
+func skipEscapeTerminator(s string, i int) int {
+	if i >= len(s) {
+		return i
+	}
+	switch s[i] {
+	case '\r':
+		i++
+		if i < len(s) && s[i] == '\n' {
+			i++
+		}
+	case ' ', '\t', '\n', '\f':
+		i++
+	}
+	return i
+}
+
+var simplePseudoClasses = map[string]Sel{
+	"first-child":   nthPseudoClassSelector{a: 0, b: 1, ofType: false, last: false},
+	"last-child":    nthPseudoClassSelector{a: 0, b: 1, ofType: false, last: true},
+	"first-of-type": nthPseudoClassSelector{a: 0, b: 1, ofType: true, last: false},
+	"last-of-type":  nthPseudoClassSelector{a: 0, b: 1, ofType: true, last: true},
+	"only-child":    onlyChildPseudoClassSelector{ofType: false},
+	"only-of-type":  onlyChildPseudoClassSelector{ofType: true},
+	"input":         inputPseudoClassSelector{},
+	"empty":         emptyElementPseudoClassSelector{},
+	"root":          rootPseudoClassSelector{},
+	"link":          linkPseudoClassSelector{},
+	"enabled":       enabledPseudoClassSelector{},
+	"disabled":      disabledPseudoClassSelector{},
+	"checked":       checkedPseudoClassSelector{},
+}
+
+func (p *parser) parseAttributeEnd() (bool, error) {
+	p.skipWhitespace()
+	if p.i >= len(p.s) {
+		return false, errors.New("unexpected EOF in attribute selector")
+	}
+
+	// check if the attribute contains an ignore case flag
+	ignoreCase := false
+	if p.s[p.i] == 'i' || p.s[p.i] == 'I' {
+		ignoreCase = true
+		p.i++
+	}
+
+	p.skipWhitespace()
+	if p.i >= len(p.s) {
+		return false, errors.New("unexpected EOF in attribute selector")
+	}
+
+	if p.s[p.i] != ']' {
+		return false, fmt.Errorf("expected ']', found '%c' instead", p.s[p.i])
+	}
+	p.i++
+
+	return ignoreCase, nil
+}
+
+func (p *parser) skipUniversalNamespace() {
+	if p.i+2 < len(p.s) && p.s[p.i:p.i+2] == "|*" { // other version of universal selector
+		p.i += 2
+	}
+}
+
+func (p *parser) parseNthKeyword() (int, int, error) {
+	id, nameErr := p.parseName()
+	if nameErr != nil {
+		return 0, 0, nameErr
+	}
+	id = toLowerASCII(id)
+	if id == "odd" {
+		return 2, 1, nil
+	}
+	if id == "even" {
+		return 2, 0, nil
+	}
+	return 0, 0, fmt.Errorf("expected 'odd' or 'even', but found '%s' instead", id)
+}
+
+func (p *parser) parsePseudoName() (string, error) {
+	if p.i >= len(p.s) {
+		return "", fmt.Errorf("expected pseudoclass selector (:pseudoclass), found EOF instead")
+	}
+	if p.s[p.i] != ':' {
+		return "", fmt.Errorf("expected attribute selector (:pseudoclass), found '%c' instead", p.s[p.i])
+	}
+
+	p.i++
+	var mustBePseudoElement bool
+	if p.i >= len(p.s) {
+		return "", fmt.Errorf("got empty pseudoclass (or pseudoelement)")
+	}
+	if p.s[p.i] == ':' { // we found a pseudo-element
+		mustBePseudoElement = true
+		p.i++
+	}
+
+	name, err := p.parseIdentifier()
+	if err != nil {
+		return "", err
+	}
+	name = toLowerASCII(name)
+	if mustBePseudoElement && !isPseudoElement(name) {
+		return "", fmt.Errorf("unknown pseudoelement :%s", name)
+	}
+
+	return name, nil
 }

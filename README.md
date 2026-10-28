@@ -6,7 +6,6 @@ synchronization. Branches intended for upstream pull requests should start
 from `master` and retain the upstream module path. Fork development and release
 pull requests should target `main`.
 
-[![Go quality](https://github.com/soulteary/cascadia/actions/workflows/quality.yml/badge.svg)](https://github.com/soulteary/cascadia/actions/workflows/quality.yml)
 [![Go Test Coverage](./.github/coverage.svg)](./.github/go-test-report.md)
 [![Go Report Card](./.github/goreportcard.svg)](./.github/goreportcard-report.md)
 

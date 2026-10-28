@@ -313,7 +313,7 @@ func matchInsensitiveValue(userAttr string, realAttr string, ignoreCase bool) bo
 
 }
 
-// matches elements where the attribute named key satisifes the function f.
+// matches elements where the attribute named key satisfies the function f.
 func matchAttribute(n *html.Node, key string, f func(string) bool) bool {
 	if n.Type != html.ElementNode {
 		return false
