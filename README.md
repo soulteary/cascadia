@@ -1,5 +1,8 @@
 # cascadia
 
+API-compatible fork of Cascadia with 100% statement coverage and up to 20×
+faster repeated queries in synthetic benchmarks.
+
 This fork publishes the Go module `github.com/soulteary/cascadia` from `main`.
 The `master` branch tracks `andybalholm/cascadia` and is reserved for upstream
 synchronization. Branches intended for upstream pull requests should start
@@ -73,6 +76,49 @@ The tree must not be mutated while the index is in use. Rebuild the index after
 changing nodes or attributes. An `IndexedDocument` supports concurrent queries
 when the underlying tree is immutable. For a single query, the regular
 `Query`/`QueryAll` functions may be faster because they do not build an index.
+
+## Performance measurements
+
+The “up to 20×” figure refers to repeated `.item-19` queries in the synthetic
+benchmark in [`performance_benchmark_test.go`](./performance_benchmark_test.go).
+Development measurements on an Apple M5 (darwin/arm64), using Go 1.27.3 and
+200 sections with 20 links each (about 4,200 elements), measured roughly
+181–200 µs per query with `QueryAll` and 8–13 µs with
+`IndexedDocument.QueryAll`. The ratio varies between runs; 20× describes this
+workload rather than a guarantee for every selector or document.
+
+Selectors and HTML are parsed before timing, and the index is built once and
+reused. Query timings include result allocation but exclude HTML parsing,
+selector parsing, and index construction. The scan baseline uses the existing
+non-indexed query engine retained in this fork; these figures are not a separate
+comparison against every upstream release. Some selectors, including
+`a:nth-child(20)` in this fixture, are approximately neutral.
+
+Index construction was measured separately at roughly 0.81–0.84 ms and
+1.33 MB allocated per build. This cost must be amortized over repeated queries.
+These are development measurements, not a benchmark rerun for each release.
+To reproduce the benchmark suite on your machine:
+
+```sh
+go test -run '^$' -bench 'BenchmarkQueryEngines|BenchmarkBuildIndexedDocument' -benchmem -count=5
+```
+
+## Compatibility
+
+The fork retains the existing parsing, selector, and query APIs, including
+`Matcher`, `Sel`, `Selector`, `Query`, and `QueryAll`. Existing callers can
+continue to use the scan-based APIs; indexed queries and result-storage reuse
+are opt-in additions.
+
+To adopt the fork, change imports from `github.com/andybalholm/cascadia` to
+`github.com/soulteary/cascadia`. The module requires Go 1.25 or later. Tests
+cover existing selector behavior, and differential fuzzing compares indexed
+results with the scan engine, including document order and nil results.
+This evidence supports API compatibility but does not establish equivalence
+for every possible input or future upstream version.
+
+The reported 100% coverage is statement coverage across both Go packages.
+It does not measure every condition combination or prove the absence of bugs.
 
 ## Example
 
