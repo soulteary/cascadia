@@ -6,13 +6,37 @@ synchronization. Branches intended for upstream pull requests should start
 from `master` and retain the upstream module path. Fork development and release
 pull requests should target `main`.
 
-[![](https://travis-ci.org/andybalholm/cascadia.svg)](https://travis-ci.org/andybalholm/cascadia)
+[![Go quality](https://github.com/soulteary/cascadia/actions/workflows/quality.yml/badge.svg)](https://github.com/soulteary/cascadia/actions/workflows/quality.yml)
+[![Go Test Coverage](./.github/coverage.svg)](./.github/go-test-report.md)
+[![Go Report Card](./.github/goreportcard.svg)](./.github/goreportcard-report.md)
 
 The Cascadia package implements CSS selectors for use with the parse trees produced by the html package.
 
 To test CSS selectors without writing Go code, check out [cascadia](https://github.com/suntong/cascadia) the command line tool, a thin wrapper around this package.
 
 [Refer to package documentation here](https://pkg.go.dev/github.com/soulteary/cascadia).
+
+## Tests and quality reports
+
+The Go quality workflow runs on pushes to `main`, pull requests targeting
+`main`, and manual dispatches. It uses
+[go-test-report-action](https://github.com/soulteary/go-test-report-action)
+to run tests with the race detector and enforce 100% statement coverage for
+the full module and each package.
+[goreportcard-action](https://github.com/soulteary/goreportcard-action)
+generates the code quality report.
+
+Each run uploads reports and raw test results as workflow artifacts. Successful
+`main` runs also commit the badges and reports linked above, provided `main`
+still points to the tested revision. Pull request checks have read-only access.
+
+To run the checks locally:
+
+```sh
+go test -race -covermode=atomic -coverprofile=coverage.out ./...
+go tool cover -func=coverage.out
+go vet ./...
+```
 
 ## Repeated queries over one document
 
