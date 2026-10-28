@@ -1,11 +1,11 @@
 # Go Report Card
 
-**Grade: A+** (98.4%)
+**Grade: A+** (100.0%)
 
 | Metric | Value |
 | ------ | ----- |
 | Files | 22 |
-| Issues | 5 |
+| Issues | 1 |
 
 ## Checks
 
@@ -13,34 +13,18 @@
 | ----- | ----- |
 | gofmt | 100% |
 | go_vet | 100% |
-| gocyclo | 86% |
+| gocyclo | 100% |
 | ineffassign | 100% |
 | license | 100% |
-| misspell | 90% |
+| misspell | 95% |
 
 ## Issues
 
-### gocyclo
-
-- `parser.go`
-  - Line 455: cyclomatic complexity 64 for function (*parser).parsePseudoclassSelector
-  - Line 648: cyclomatic complexity 25 for function (*parser).parseNth
-  - Line 770: cyclomatic complexity 19 for function (*parser).parseSimpleSelectorSequence
-  - Line 357: cyclomatic complexity 19 for function (*parser).parseAttributeSelector
-  - Line 164: cyclomatic complexity 19 for function (*parser).parseString
-  - Line 24: cyclomatic complexity 16 for function (*parser).parseEscape
-- `coverage_test.go`
-  - Line 196: cyclomatic complexity 29 for function TestCompatibilityHelpersAndErrorPaths
-  - Line 51: cyclomatic complexity 19 for function TestQueryEvaluatorInternalFallbacks
-- `query_evaluator.go`
-  - Line 69: cyclomatic complexity 17 for function (*queryEvaluator).matchCombined
-
 ### misspell
 
-- `selector.go`
-  - Line 316: "satisifes" is a misspelling of "satisfies"
-- `test_resources/valid_selectors.json`
-  - Line 688: "thrid" is a misspelling of "third"
+- `.github/goreportcard-report.md`
+  - Line 41: "satisifes" is a misspelling of "satisfies"
+  - Line 43: "thrid" is a misspelling of "third"
 
 ---
 
