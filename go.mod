@@ -1,4 +1,4 @@
-module github.com/andybalholm/cascadia
+module github.com/soulteary/cascadia
 
 go 1.25.0
 

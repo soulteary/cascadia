@@ -1,6 +1,6 @@
 package fuzz
 
-import "github.com/andybalholm/cascadia"
+import "github.com/soulteary/cascadia"
 
 // Fuzz is the entrypoint used by the go-fuzz framework
 func Fuzz(data []byte) int {

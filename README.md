@@ -1,12 +1,18 @@
 # cascadia
 
+This fork publishes the Go module `github.com/soulteary/cascadia` from `main`.
+The `master` branch tracks `andybalholm/cascadia` and is reserved for upstream
+synchronization. Branches intended for upstream pull requests should start
+from `master` and retain the upstream module path. Fork development and release
+pull requests should target `main`.
+
 [![](https://travis-ci.org/andybalholm/cascadia.svg)](https://travis-ci.org/andybalholm/cascadia)
 
 The Cascadia package implements CSS selectors for use with the parse trees produced by the html package.
 
 To test CSS selectors without writing Go code, check out [cascadia](https://github.com/suntong/cascadia) the command line tool, a thin wrapper around this package.
 
-[Refer to godoc here](https://godoc.org/github.com/andybalholm/cascadia).
+[Refer to package documentation here](https://pkg.go.dev/github.com/soulteary/cascadia).
 
 ## Repeated queries over one document
 
@@ -57,7 +63,7 @@ import (
 	"log"
 	"strings"
 
-	"github.com/andybalholm/cascadia"
+	"github.com/soulteary/cascadia"
 	"golang.org/x/net/html"
 )
 
