@@ -163,6 +163,8 @@ func FuzzIndexedDocumentMatchesQueryAll(f *testing.F) {
 		"a:nth-last-child(odd of :is(.item-1, .item-5))",
 		"section:has(> a:where(.item-1, .item-5))",
 		"a:any-link[href$=\"/5\" s]",
+		":is(:unknown /* , .item-1, */ , .item-5)",
+		":where(:unknown /* ) */ , .item-5)",
 	} {
 		f.Add(selector)
 	}

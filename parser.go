@@ -898,6 +898,11 @@ func (p *parser) skipSelectorArgument() bool {
 	for p.i < len(p.s) {
 		c := p.s[p.i]
 		switch {
+		case c == '/' && strings.HasPrefix(p.s[p.i:], "/*"):
+			if !p.skipWhitespace() {
+				return false // The comment is unterminated.
+			}
+			continue
 		case c == '\\':
 			p.i++
 		case c == '"' || c == '\'':

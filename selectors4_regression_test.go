@@ -67,3 +67,28 @@ func TestNthOfDetachedAndOrdinarySpecificity(t *testing.T) {
 		t.Fatalf("ordinary nth-child specificity = %v", got)
 	}
 }
+
+func TestForgivingSelectorRecoveryIgnoresComments(t *testing.T) {
+	root := MustParseHTML(`<main><p id="hidden" class="secret"></p><p id="visible" class="x"></p></main>`)
+	for _, query := range []string{
+		`:is(:unknown /* , .secret, */ , .x)`,
+		`:where(:unknown /* ) */ , .x)`,
+		`:is(:unknown(/* ) ], " ' , */), .x)`,
+		`:where(:unknown /* first */ /* , .secret, */ , .x)`,
+		`:is(:unknown("/* , .secret, */"), .x)`,
+	} {
+		t.Run(query, func(t *testing.T) {
+			if got := matchIDs(t, root, query); got != "visible" {
+				t.Fatalf("got %q, want visible", got)
+			}
+		})
+	}
+	for _, query := range []string{
+		`:is(:unknown /* , .secret, .x)`,
+		`:where(:unknown /* closed */ /* unterminated, .x)`,
+	} {
+		if _, err := ParseGroup(query); err == nil {
+			t.Errorf("unterminated comment in %q should fail", query)
+		}
+	}
+}
