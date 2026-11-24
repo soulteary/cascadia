@@ -41,9 +41,9 @@ jobs:
           coverage_threshold: '100'
           package_threshold: '100'
           commit: 'false'
-      - uses: soulteary/goreportcard-action@d4669a9fbea514f5995d749177630ebfee755789 # v1.1.4
+      - uses: soulteary/goreportcard-action@9744d0297ca0116cd4ef83e4ff6f3ba42a65a24d # v1.1.7
         with:
-          version: v1.1.4
+          version: "v1.1.7"
           go_version_file: .github/go-version
           commit: 'false'
       - name: Upload reports
