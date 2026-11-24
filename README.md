@@ -18,6 +18,17 @@ To test CSS selectors without writing Go code, check out [cascadia](https://gith
 
 [Refer to package documentation here](https://pkg.go.dev/github.com/soulteary/cascadia).
 
+## Latest release
+
+[v1.1.0](docs/releases/v1.1.0.md) adds `:is()`, `:where()`, `:any-link`,
+filtered `:nth-child()` selectors, and explicit case-sensitive attribute flags.
+It also includes upstream matching and serialization fixes and updates
+`golang.org/x/net` to v0.63.0, which requires Go 1.26 or later.
+
+```sh
+go get github.com/soulteary/cascadia@v1.1.0
+```
+
 ## Tests and quality reports
 
 The Go quality workflow runs on pushes to `main`, pull requests targeting
@@ -111,7 +122,7 @@ continue to use the scan-based APIs; indexed queries and result-storage reuse
 are opt-in additions.
 
 To adopt the fork, change imports from `github.com/andybalholm/cascadia` to
-`github.com/soulteary/cascadia`. The module requires Go 1.25 or later. Tests
+`github.com/soulteary/cascadia`. The module requires Go 1.26 or later. Tests
 cover existing selector behavior, and differential fuzzing compares indexed
 results with the scan engine, including document order and nil results.
 This evidence supports API compatibility but does not establish equivalence

@@ -193,6 +193,11 @@ func (e *queryEvaluator) matchRelativeSelector(n *html.Node, combinator byte, se
 }
 
 func (e *queryEvaluator) matchNth(s nthPseudoClassSelector, n *html.Node) bool {
+	if s.of != nil {
+		// Cached positions count every sibling (or every sibling of the same
+		// type), not the arbitrary selector subset in an "of" clause.
+		return s.Match(n)
+	}
 	if n.Type != html.ElementNode || n.Parent == nil {
 		return false
 	}
