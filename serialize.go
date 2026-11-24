@@ -18,8 +18,13 @@ func init() {
 	specialCharReplacer = strings.NewReplacer(pairs...)
 }
 
-// espace special CSS char
-func escape(s string) string { return specialCharReplacer.Replace(s) }
+// escape escapes special characters in an ID or class name.
+func escape(s string) string {
+	if len(s) > 0 && '0' <= s[0] && s[0] <= '9' {
+		return fmt.Sprintf(`\%x %s`, s[0], specialCharReplacer.Replace(s[1:]))
+	}
+	return specialCharReplacer.Replace(s)
+}
 
 func (c tagSelector) String() string {
 	return c.tag
@@ -75,12 +80,20 @@ func (c notPseudoClassSelector) String() string {
 	return fmt.Sprintf(":not(%s)", c.match.String())
 }
 
+func (c isPseudoClassSelector) String() string {
+	name := "is"
+	if c.where {
+		name = "where"
+	}
+	return fmt.Sprintf(":%s(%s)", name, c.match.String())
+}
+
 func (c containsPseudoClassSelector) String() string {
 	s := "contains"
 	if c.own {
 		s += "Own"
 	}
-	return fmt.Sprintf(`:%s("%s")`, s, c.value)
+	return fmt.Sprintf(`:%s("%s")`, s, quotedStringReplacer.Replace(c.value))
 }
 
 func (c regexpPseudoClassSelector) String() string {
@@ -92,7 +105,7 @@ func (c regexpPseudoClassSelector) String() string {
 }
 
 func (c nthPseudoClassSelector) String() string {
-	if c.a == 0 && c.b == 1 { // special cases
+	if c.a == 0 && c.b == 1 && c.of == nil { // special cases
 		s := ":first-"
 		if c.last {
 			s = ":last-"
@@ -119,6 +132,9 @@ func (c nthPseudoClassSelector) String() string {
 	if c.b < 0 { // avoid +-8 invalid syntax
 		s = strconv.Itoa(c.b)
 	}
+	if c.of != nil {
+		return fmt.Sprintf(":%s(%dn%s of %s)", name, c.a, s, c.of.String())
+	}
 	return fmt.Sprintf(":%s(%dn%s)", name, c.a, s)
 }
 
@@ -142,6 +158,9 @@ func (c rootPseudoClassSelector) String() string {
 }
 
 func (c linkPseudoClassSelector) String() string {
+	if c.anyLink {
+		return ":any-link"
+	}
 	return ":link"
 }
 

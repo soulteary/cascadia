@@ -1,0 +1,144 @@
+package cascadia
+
+import (
+	"reflect"
+	"testing"
+
+	"golang.org/x/net/html"
+)
+
+func TestIndexedSelectors4MatchScan(t *testing.T) {
+	root := MustParseHTML(nthOfTestHTML)
+	for _, indexedRoot := range []*html.Node{root, Query(root, mustParseGroup("ul"))} {
+		doc := NewIndexedDocument(indexedRoot)
+		for _, query := range []string{
+			"li:nth-child(2 of .a)",
+			"li:nth-child(odd of .a)",
+			"li:nth-last-child(1 of .a)",
+			"li:nth-last-child(-n+2 of .a)",
+			"li:nth-child(1 of .b, #l5)",
+			"li:nth-child(2 of :is(.a, .b))",
+			"li:is(.a, :unknown):not(.b)",
+			"ul:has(> li:nth-child(2 of .a))",
+			"ul:has(> :is(.a, .b)) > li:where(.a)",
+			"ul:has(> li:nth-child(2 of .a)) > li",
+		} {
+			t.Run(query, func(t *testing.T) {
+				matcher := mustParseGroup(query)
+				want := QueryAll(indexedRoot, matcher)
+				if got := doc.QueryAll(matcher); !reflect.DeepEqual(got, want) {
+					t.Fatalf("indexed nodes %p, scan nodes %p", got, want)
+				}
+				if got := doc.Query(matcher); got != firstNode(want) {
+					t.Fatalf("indexed first node %p, scan first node %p", got, firstNode(want))
+				}
+			})
+		}
+	}
+}
+
+func TestForgivingSelectorArgumentBoundaries(t *testing.T) {
+	root := MustParseHTML(isTestHTML)
+	for _, query := range []string{
+		`:is(:unknown(\)), .a)`,
+		`:where(:unknown(")"), .a)`,
+		`:is(:unknown([title=")"]), .a)`,
+	} {
+		if got := matchIDs(t, root, query); got != "d1" {
+			t.Errorf("%s: got %q, want d1", query, got)
+		}
+	}
+	parser := parser{s: ".a)", depth: maxParseDepth + 1}
+	if _, err := parser.parseForgivingSelectorGroup(); err == nil {
+		t.Fatal("forgiving parsing exceeded the nesting limit")
+	}
+}
+
+func TestNthOfDetachedAndOrdinarySpecificity(t *testing.T) {
+	detached := &html.Node{Type: html.ElementNode, Data: "li", Attr: []html.Attribute{{Key: "class", Val: "a"}}}
+	if mustParseGroup(":nth-child(1 of .a)").Match(detached) {
+		t.Fatal("detached element matched a filtered sibling position")
+	}
+	selector, err := Parse("li:nth-child(2n+1)")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := selector.Specificity(); got != (Specificity{0, 1, 1}) {
+		t.Fatalf("ordinary nth-child specificity = %v", got)
+	}
+}
+
+func TestForgivingSelectorRecoveryIgnoresComments(t *testing.T) {
+	root := MustParseHTML(`<main><p id="hidden" class="secret"></p><p id="visible" class="x"></p></main>`)
+	for _, query := range []string{
+		`:is(:unknown /* , .secret, */ , .x)`,
+		`:where(:unknown /* ) */ , .x)`,
+		`:is(:unknown(/* ) ], " ' , */), .x)`,
+		`:where(:unknown /* first */ /* , .secret, */ , .x)`,
+		`:is(:unknown("/* , .secret, */"), .x)`,
+	} {
+		t.Run(query, func(t *testing.T) {
+			if got := matchIDs(t, root, query); got != "visible" {
+				t.Fatalf("got %q, want visible", got)
+			}
+		})
+	}
+	for _, query := range []string{
+		`:is(:unknown /* , .secret, .x)`,
+		`:where(:unknown /* closed */ /* unterminated, .x)`,
+	} {
+		if _, err := ParseGroup(query); err == nil {
+			t.Errorf("unterminated comment in %q should fail", query)
+		}
+	}
+}
+
+func TestForgivingSelectorRecoveryRejectsNestedPseudoElements(t *testing.T) {
+	root := MustParseHTML(`<main><p id="hidden" class="secret"></p><p id="visible" class="x"></p></main>`)
+	for _, query := range []string{
+		`:is(::before .secret, .x)`,
+		`:where(::before > .secret, .x)`,
+		`:is(::before ~ .secret, .x)`,
+		`:is(:not(::before .secret), .x)`,
+		`:where(:has(::before > .secret), .x)`,
+		`:is(::before, .x)`,
+	} {
+		t.Run(query, func(t *testing.T) {
+			if got := matchIDs(t, root, query); got != "visible" {
+				t.Fatalf("got %q, want visible", got)
+			}
+		})
+	}
+	for _, query := range []string{`:is(.x)::before`, `:where(.x)::after`} {
+		selector, err := ParseWithPseudoElement(query)
+		if err != nil {
+			t.Fatalf("outer pseudo-element in %q: %v", query, err)
+		}
+		if selector.PseudoElement() == "" {
+			t.Fatalf("outer pseudo-element was lost in %q", query)
+		}
+	}
+}
+
+func TestNthOfRejectsPseudoElements(t *testing.T) {
+	for _, query := range []string{
+		`:nth-child(1 of ::before)`,
+		`:nth-child(1 of ::before .secret)`,
+		`:nth-last-child(2 of .x::before, .secret)`,
+		`:nth-child(1 of .x > ::before .secret)`,
+		`:nth-child(1 of :not(::before))`,
+	} {
+		if _, err := ParseGroupWithPseudoElements(query); err == nil {
+			t.Errorf("pseudo-element inside of clause in %q should fail", query)
+		}
+	}
+	for _, query := range []string{
+		`.x:nth-child(1 of .x)::before`,
+		`.x:nth-last-child(1 of .x)::after`,
+	} {
+		selector, err := ParseWithPseudoElement(query)
+		if err != nil || selector.PseudoElement() == "" {
+			t.Fatalf("outer pseudo-element in %q: selector %v, error %v", query, selector, err)
+		}
+	}
+}

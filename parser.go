@@ -276,6 +276,42 @@ func (p *parser) consumeParenthesis() bool {
 	return false
 }
 
+// consumeOf consumes the 'of' keyword of :nth-child(An+B of S), with the
+// white space around it. It returns true if the keyword was there.
+func (p *parser) consumeOf() bool {
+	i := p.i
+	p.skipWhitespace()
+	// The keyword needs white space (or a comment) on both sides: '2of' is
+	// a dimension token, not a number followed by 'of'.
+	if p.i > 0 && endsSeparator(p.s[p.i-1]) && p.i+2 < len(p.s) &&
+		toLowerASCII(p.s[p.i:p.i+2]) == "of" && p.skipWhitespaceAt(p.i+2) {
+		p.i += 2
+		p.skipWhitespace()
+		return true
+	}
+	p.i = i
+	return false
+}
+
+// endsSeparator reports whether c can be the last byte of white space or of
+// a comment.
+func endsSeparator(c byte) bool {
+	switch c {
+	case ' ', '\t', '\r', '\n', '\f', '/':
+		return true
+	}
+	return false
+}
+
+// skipWhitespaceAt reports whether p.s[i] starts white space or a comment.
+func (p *parser) skipWhitespaceAt(i int) bool {
+	saved := p.i
+	p.i = i
+	ok := p.skipWhitespace()
+	p.i = saved
+	return ok
+}
+
 // consumeClosingParenthesis consumes a closing parenthesis and any preceding
 // whitespace. It returns true if there was actually a parenthesis to skip.
 func (p *parser) consumeClosingParenthesis() bool {
@@ -418,6 +454,19 @@ func (p *parser) parsePseudoclassSelector() (out Sel, pseudoElement string, err 
 	case "not":
 		return p.parseNotPseudo(name)
 
+	case "is", "where":
+		if !p.consumeParenthesis() {
+			return out, "", errExpectedParenthesis
+		}
+		sel, parseErr := p.parseForgivingSelectorGroup()
+		if parseErr != nil {
+			return out, "", parseErr
+		}
+		// Successful forgiving-list parsing stops immediately before ')'.
+		p.i++
+
+		out = isPseudoClassSelector{where: name == "where", match: sel}
+
 	case "has", "haschild":
 		return p.parseHasPseudo(name)
 
@@ -534,13 +583,27 @@ func (p *parser) parseNthChildPseudo(name string) (out Sel, pseudoElement string
 	if err != nil {
 		return out, "", err
 	}
+	last := name == "nth-last-child" || name == "nth-last-of-type"
+	ofType := name == "nth-of-type" || name == "nth-last-of-type"
+	var of SelectorGroup
+	if p.consumeOf() {
+		if ofType {
+			return out, "", fmt.Errorf("the 'of' clause is not allowed in :%s()", name)
+		}
+		// The of clause accepts real selectors even when the outer parsing
+		// API permits a pseudo-element on the completed selector.
+		acceptPseudoElements := p.acceptPseudoElements
+		p.acceptPseudoElements = false
+		of, err = p.parseSelectorGroup()
+		p.acceptPseudoElements = acceptPseudoElements
+		if err != nil {
+			return out, "", err
+		}
+	}
 	if !p.consumeClosingParenthesis() {
 		return out, "", errExpectedClosingParenthesis
 	}
-	last := name == "nth-last-child" || name == "nth-last-of-type"
-	ofType := name == "nth-of-type" || name == "nth-last-of-type"
-	out = nthPseudoClassSelector{a: a, b: b, last: last, ofType: ofType}
-
+	out = nthPseudoClassSelector{a: a, b: b, last: last, ofType: ofType, of: of}
 	return
 }
 
@@ -798,6 +861,79 @@ func (p *parser) parseSelectorGroup() (SelectorGroup, error) {
 	return result, nil
 }
 
+// parseForgivingSelectorGroup parses a forgiving selector list, the argument
+// of :is() and :where(). Unlike parseSelectorGroup, a selector that cannot be
+// parsed (or that contains a pseudo-element) is dropped instead of making the
+// whole list invalid. The list may be empty; it then matches nothing.
+// See https://www.w3.org/TR/selectors-4/#forgiving-selector
+func (p *parser) parseForgivingSelectorGroup() (SelectorGroup, error) {
+	if p.depth > maxParseDepth {
+		return nil, fmt.Errorf("selector nesting too deep (max %d)", maxParseDepth)
+	}
+	p.depth++
+	acceptPseudoElements := p.acceptPseudoElements
+	p.acceptPseudoElements = false
+	defer func() {
+		p.depth--
+		p.acceptPseudoElements = acceptPseudoElements
+	}()
+
+	result := SelectorGroup{}
+	for {
+		start := p.i
+		sel, err := p.parseSelector()
+		if err == nil {
+			p.skipWhitespace()
+		}
+		if err == nil && p.i < len(p.s) && (p.s[p.i] == ',' || p.s[p.i] == ')') && sel.PseudoElement() == "" {
+			result = append(result, sel)
+		} else {
+			p.i = start
+			if !p.skipSelectorArgument() {
+				return nil, errUnmatchedParenthesis
+			}
+		}
+		if p.i < len(p.s) && p.s[p.i] == ',' {
+			p.i++
+			continue
+		}
+		return result, nil
+	}
+}
+
+// skipSelectorArgument advances to the next ',' or ')' that is not nested in
+// parentheses, brackets or a string. It returns false if there is none.
+func (p *parser) skipSelectorArgument() bool {
+	var closers []byte
+	for p.i < len(p.s) {
+		c := p.s[p.i]
+		switch {
+		case c == '/' && strings.HasPrefix(p.s[p.i:], "/*"):
+			if !p.skipWhitespace() {
+				return false // The comment is unterminated.
+			}
+			continue
+		case c == '\\':
+			p.i++
+		case c == '"' || c == '\'':
+			if _, err := p.parseString(); err != nil {
+				return false
+			}
+			continue
+		case c == '(':
+			closers = append(closers, ')')
+		case c == '[':
+			closers = append(closers, ']')
+		case len(closers) > 0 && c == closers[len(closers)-1]:
+			closers = closers[:len(closers)-1]
+		case len(closers) == 0 && (c == ',' || c == ')'):
+			return true
+		}
+		p.i++
+	}
+	return false
+}
+
 // parseRelativeSelector parses a selector that may start with a combinator
 // (a relative selector, as used inside :has()).
 func (p *parser) parseRelativeSelector() (relativeSelector, error) {
@@ -963,6 +1099,7 @@ var simplePseudoClasses = map[string]Sel{
 	"empty":         emptyElementPseudoClassSelector{},
 	"root":          rootPseudoClassSelector{},
 	"link":          linkPseudoClassSelector{},
+	"any-link":      linkPseudoClassSelector{anyLink: true},
 	"enabled":       enabledPseudoClassSelector{},
 	"disabled":      disabledPseudoClassSelector{},
 	"checked":       checkedPseudoClassSelector{},
@@ -974,10 +1111,13 @@ func (p *parser) parseAttributeEnd() (bool, error) {
 		return false, errors.New("unexpected EOF in attribute selector")
 	}
 
-	// check if the attribute contains an ignore case flag
+	// Accept explicit ASCII-insensitive (i) or case-sensitive (s) matching.
 	ignoreCase := false
-	if p.s[p.i] == 'i' || p.s[p.i] == 'I' {
+	switch p.s[p.i] {
+	case 'i', 'I':
 		ignoreCase = true
+		p.i++
+	case 's', 'S':
 		p.i++
 	}
 

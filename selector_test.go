@@ -145,6 +145,32 @@ var selectorTests = []selectorTest{
 		},
 	},
 	{
+		`<div><div class="Red"><div class="red">`,
+		`div[class="red" s]`,
+		[]string{
+			`<div class="red"></div>`,
+		},
+	},
+	{
+		`<div><div class="Red">`,
+		`div[class="red" S]`,
+		[]string{},
+	},
+	{
+		`<p title="FooBar"><p title="foobar">`,
+		`p[title^="Foo" s]`,
+		[]string{
+			`<p title="FooBar"></p>`,
+		},
+	},
+	{
+		`<p title="FooBar"><p title="foobar">`,
+		`p[title*="oBa"   s  ]`,
+		[]string{
+			`<p title="FooBar"></p>`,
+		},
+	},
+	{
 		`<address><address title="foo"><address title="bar">`,
 		`address[title="foo"]`,
 		[]string{
@@ -810,6 +836,29 @@ var selectorTests = []selectorTest{
 		`<select><optgroup disabled><option>A</option></optgroup><option disabled>B</option><option>C</option></select>`,
 		"option:disabled",
 		[]string{`<option>A</option>`, `<option disabled="">B</option>`},
+	},
+	{
+		`<html><head><link href="x"></head><body><a href="x"></a><area href="x"><input></body></html>`,
+		":enabled",
+		[]string{
+			`<input/>`,
+		},
+	},
+	{
+		`<html><head><link href="x"></head><body><a href="x"></a><area href="x"><a></a><input></body></html>`,
+		":any-link",
+		[]string{
+			`<link href="x"/>`,
+			`<a href="x"></a>`,
+			`<area href="x"/>`,
+		},
+	},
+	{
+		`<p><a href=""></a><a name="x"></a><span href="x"></span></p>`,
+		"p :any-link",
+		[]string{
+			`<a href=""></a>`,
+		},
 	},
 	{
 		`<select><optgroup disabled><option>A</option></optgroup><option disabled>B</option><option>C</option></select>`,
