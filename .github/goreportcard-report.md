@@ -1,11 +1,11 @@
 # Go Report Card
 
-**Grade: A+** (100.0%)
+**Grade: A+** (99.5%)
 
 | Metric | Value |
 | ------ | ----- |
-| Files | 22 |
-| Issues | 0 |
+| Files | 25 |
+| Issues | 1 |
 
 ## Checks
 
@@ -13,12 +13,17 @@
 | ----- | ----- |
 | gofmt | 100% |
 | go_vet | 100% |
-| gocyclo | 100% |
+| gocyclo | 96% |
 | ineffassign | 100% |
 | license | 100% |
 | misspell | 100% |
 
-No issues found. Nice work!
+## Issues
+
+### gocyclo
+
+- `parser.go`
+  - Line 906: cyclomatic complexity 16 for function (*parser).skipSelectorArgument
 
 ---
 
