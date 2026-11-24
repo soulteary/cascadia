@@ -590,7 +590,12 @@ func (p *parser) parseNthChildPseudo(name string) (out Sel, pseudoElement string
 		if ofType {
 			return out, "", fmt.Errorf("the 'of' clause is not allowed in :%s()", name)
 		}
+		// The of clause accepts real selectors even when the outer parsing
+		// API permits a pseudo-element on the completed selector.
+		acceptPseudoElements := p.acceptPseudoElements
+		p.acceptPseudoElements = false
 		of, err = p.parseSelectorGroup()
+		p.acceptPseudoElements = acceptPseudoElements
 		if err != nil {
 			return out, "", err
 		}
@@ -866,7 +871,12 @@ func (p *parser) parseForgivingSelectorGroup() (SelectorGroup, error) {
 		return nil, fmt.Errorf("selector nesting too deep (max %d)", maxParseDepth)
 	}
 	p.depth++
-	defer func() { p.depth-- }()
+	acceptPseudoElements := p.acceptPseudoElements
+	p.acceptPseudoElements = false
+	defer func() {
+		p.depth--
+		p.acceptPseudoElements = acceptPseudoElements
+	}()
 
 	result := SelectorGroup{}
 	for {

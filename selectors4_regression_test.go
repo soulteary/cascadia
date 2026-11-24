@@ -92,3 +92,53 @@ func TestForgivingSelectorRecoveryIgnoresComments(t *testing.T) {
 		}
 	}
 }
+
+func TestForgivingSelectorRecoveryRejectsNestedPseudoElements(t *testing.T) {
+	root := MustParseHTML(`<main><p id="hidden" class="secret"></p><p id="visible" class="x"></p></main>`)
+	for _, query := range []string{
+		`:is(::before .secret, .x)`,
+		`:where(::before > .secret, .x)`,
+		`:is(::before ~ .secret, .x)`,
+		`:is(:not(::before .secret), .x)`,
+		`:where(:has(::before > .secret), .x)`,
+		`:is(::before, .x)`,
+	} {
+		t.Run(query, func(t *testing.T) {
+			if got := matchIDs(t, root, query); got != "visible" {
+				t.Fatalf("got %q, want visible", got)
+			}
+		})
+	}
+	for _, query := range []string{`:is(.x)::before`, `:where(.x)::after`} {
+		selector, err := ParseWithPseudoElement(query)
+		if err != nil {
+			t.Fatalf("outer pseudo-element in %q: %v", query, err)
+		}
+		if selector.PseudoElement() == "" {
+			t.Fatalf("outer pseudo-element was lost in %q", query)
+		}
+	}
+}
+
+func TestNthOfRejectsPseudoElements(t *testing.T) {
+	for _, query := range []string{
+		`:nth-child(1 of ::before)`,
+		`:nth-child(1 of ::before .secret)`,
+		`:nth-last-child(2 of .x::before, .secret)`,
+		`:nth-child(1 of .x > ::before .secret)`,
+		`:nth-child(1 of :not(::before))`,
+	} {
+		if _, err := ParseGroupWithPseudoElements(query); err == nil {
+			t.Errorf("pseudo-element inside of clause in %q should fail", query)
+		}
+	}
+	for _, query := range []string{
+		`.x:nth-child(1 of .x)::before`,
+		`.x:nth-last-child(1 of .x)::after`,
+	} {
+		selector, err := ParseWithPseudoElement(query)
+		if err != nil || selector.PseudoElement() == "" {
+			t.Fatalf("outer pseudo-element in %q: selector %v, error %v", query, selector, err)
+		}
+	}
+}
